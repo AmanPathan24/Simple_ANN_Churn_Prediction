@@ -2,6 +2,8 @@
 
 A Streamlit application for predicting customer churn with a trained artificial neural network. The project includes the training notebook, a separate prediction notebook, the exported model artifacts, and a polished inference UI for interactive scoring.
 
+### Deployed Link: `https://simple-ann-churn-prediction.streamlit.app/`
+
 ## What’s included
 
 - `app.py` - Streamlit app for entering a customer profile and getting a churn probability.
