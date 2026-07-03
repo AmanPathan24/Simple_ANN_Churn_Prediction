@@ -14,16 +14,17 @@ st.set_page_config(
 
 
 @st.cache_resource
-def load_artifacts():
-    model = tf.keras.models.load_model("models/model.h5")
+def load_artifacts(task_type):
+    path_prefix = "models/regression/" if task_type == "Regression" else "models/"
+    model = tf.keras.models.load_model(f"{path_prefix}model.h5")
 
-    with open("models/label_encoder_gender.pkl", "rb") as file:
+    with open(f"{path_prefix}label_encoder_gender.pkl", "rb") as file:
         label_encoder_gender = pickle.load(file)
 
-    with open("models/onehot_encoder_geo.pkl", "rb") as file:
+    with open(f"{path_prefix}onehot_encoder_geo.pkl", "rb") as file:
         onehot_encoder_geo = pickle.load(file)
 
-    with open("models/scaler.pkl", "rb") as file:
+    with open(f"{path_prefix}scaler.pkl", "rb") as file:
         scaler = pickle.load(file)
 
     return model, label_encoder_gender, onehot_encoder_geo, scaler
@@ -39,12 +40,14 @@ def build_input_frame(
     num_of_products,
     has_cr_card,
     is_active_member,
-    estimated_salary,
     label_encoder_gender,
     onehot_encoder_geo,
+    estimated_salary=None,
+    exited=None,
+    task_type="Classification",
 ):
-    base_frame = pd.DataFrame(
-        {
+    if task_type == "Classification":
+        base_dict = {
             "CreditScore": [credit_score],
             "Gender": [label_encoder_gender.transform([gender])[0]],
             "Age": [age],
@@ -55,7 +58,20 @@ def build_input_frame(
             "IsActiveMember": [is_active_member],
             "EstimatedSalary": [estimated_salary],
         }
-    )
+    else:
+        base_dict = {
+            "CreditScore": [credit_score],
+            "Gender": [label_encoder_gender.transform([gender])[0]],
+            "Age": [age],
+            "Tenure": [tenure],
+            "Balance": [balance],
+            "NumOfProducts": [num_of_products],
+            "HasCrCard": [has_cr_card],
+            "IsActiveMember": [is_active_member],
+            "Exited": [exited],
+        }
+
+    base_frame = pd.DataFrame(base_dict)
 
     geo_frame = pd.DataFrame(
         onehot_encoder_geo.transform(pd.DataFrame({"Geography": [geography]})).toarray(),
@@ -183,16 +199,32 @@ st.markdown(
 )
 
 
-model, label_encoder_gender, onehot_encoder_geo, scaler = load_artifacts()
+with st.sidebar:
+    st.markdown("### Choose Task")
+    task_type = st.radio(
+        "Task Type",
+        ["Classification", "Regression"],
+        index=0,
+        help="Select Classification to predict churn, or Regression to predict Estimated Salary."
+    )
+    st.markdown("---")
 
+model, label_encoder_gender, onehot_encoder_geo, scaler = load_artifacts(task_type)
+
+hero_title = "Customer Churn Prediction" if task_type == "Classification" else "Customer Salary Regression"
+hero_desc = (
+    "Estimate churn risk for a bank customer using the trained ANN classification model."
+    if task_type == "Classification"
+    else "Estimate estimated salary for a bank customer using the trained ANN regression model."
+)
 
 st.markdown(
-    """
+    f"""
     <section class="hero">
-        <h1>Customer Churn Prediction</h1>
+        <h1>{hero_title}</h1>
         <p>
-            Estimate churn risk for a bank customer using the trained ANN model from the notebook workflow.
-            The app applies the same encoding and scaling steps used during training, then returns a simple risk interpretation.
+            {hero_desc}
+            The app applies the same encoding and scaling steps used during training, then returns a model prediction.
         </p>
     </section>
     """,
@@ -203,22 +235,30 @@ st.write("")
 
 with st.sidebar:
     st.markdown("### Model Overview")
-    st.caption(
-        "The prediction pipeline mirrors the training notebook: label encoding for gender, one-hot encoding for geography, and standard scaling before ANN inference."
-    )
+    if task_type == "Classification":
+        st.caption(
+            "The classification pipeline mirrors the training notebook: label encoding for gender, one-hot encoding for geography, and standard scaling before ANN inference."
+        )
+    else:
+        st.caption(
+            "The regression pipeline mirrors the training notebook: label encoding for gender, one-hot encoding for geography, and standard scaling before ANN inference."
+        )
     st.markdown("### Input Features")
     st.markdown(
         """
         <ul class="feature-list">
             <li><strong>Customer profile:</strong> Geography, gender, age, tenure</li>
-            <li><strong>Account state:</strong> Balance, credit score, salary</li>
+            <li><strong>Account state:</strong> Balance, credit score, salary (Classification only) or Churn Status (Regression only)</li>
             <li><strong>Engagement:</strong> Number of products, credit card ownership, active member flag</li>
         </ul>
         """,
         unsafe_allow_html=True,
     )
     st.markdown("### Project Files")
-    st.caption("`app.py` powers the Streamlit interface. `dl-3-simple-ann.ipynb` trains the model. `prediction.ipynb` demonstrates the inference pipeline.")
+    if task_type == "Classification":
+        st.caption("`app.py` powers the Streamlit interface. `dl-3-simple-ann.ipynb` trains the classification model. `prediction.ipynb` demonstrates the inference pipeline.")
+    else:
+        st.caption("`app.py` powers the Streamlit interface. `dl-4-simple-ann-regression.ipynb` trains the regression model.")
 
 
 st.markdown("## Run a Prediction")
@@ -237,90 +277,145 @@ with st.form("churn_prediction_form"):
     with right_col:
         credit_score = st.number_input("Credit Score", min_value=300, max_value=850, value=600, step=1)
         balance = st.number_input("Balance", min_value=0.0, value=60000.0, step=1000.0, format="%.2f")
-        estimated_salary = st.number_input(
-            "Estimated Salary",
-            min_value=0.0,
-            value=50000.0,
-            step=1000.0,
-            format="%.2f",
-        )
+        if task_type == "Classification":
+            estimated_salary = st.number_input(
+                "Estimated Salary",
+                min_value=0.0,
+                value=50000.0,
+                step=1000.0,
+                format="%.2f",
+            )
+        else:
+            exited = st.selectbox("Exited (Churned)", [0, 1], index=0, format_func=lambda value: "Yes" if value else "No")
         has_cr_card = st.selectbox("Has Credit Card", [0, 1], index=1, format_func=lambda value: "Yes" if value else "No")
         is_active_member = st.selectbox("Is Active Member", [0, 1], index=1, format_func=lambda value: "Yes" if value else "No")
 
-    submitted = st.form_submit_button("Predict churn risk")
+    submit_button_label = "Predict Churn Risk" if task_type == "Classification" else "Predict Estimated Salary"
+    submitted = st.form_submit_button(submit_button_label)
 
 
 if submitted:
-    input_frame = build_input_frame(
-        credit_score=credit_score,
-        geography=geography,
-        gender=gender,
-        age=age,
-        tenure=tenure,
-        balance=balance,
-        num_of_products=num_of_products,
-        has_cr_card=has_cr_card,
-        is_active_member=is_active_member,
-        estimated_salary=estimated_salary,
-        label_encoder_gender=label_encoder_gender,
-        onehot_encoder_geo=onehot_encoder_geo,
-    )
+    if task_type == "Classification":
+        input_frame = build_input_frame(
+            credit_score=credit_score,
+            geography=geography,
+            gender=gender,
+            age=age,
+            tenure=tenure,
+            balance=balance,
+            num_of_products=num_of_products,
+            has_cr_card=has_cr_card,
+            is_active_member=is_active_member,
+            estimated_salary=estimated_salary,
+            label_encoder_gender=label_encoder_gender,
+            onehot_encoder_geo=onehot_encoder_geo,
+            task_type="Classification",
+        )
 
-    scaled_input = scaler.transform(input_frame)
-    prediction_probability = float(model.predict(scaled_input, verbose=0)[0][0])
-    risk_label, risk_level = get_risk_band(prediction_probability)
+        scaled_input = scaler.transform(input_frame)
+        prediction_probability = float(model.predict(scaled_input, verbose=0)[0][0])
+        risk_label, risk_level = get_risk_band(prediction_probability)
 
-    st.markdown("## Prediction Result")
-    result_col_1, result_col_2, result_col_3 = st.columns(3)
+        st.markdown("## Prediction Result")
+        result_col_1, result_col_2, result_col_3 = st.columns(3)
 
-    with result_col_1:
+        with result_col_1:
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="stat-label">Churn probability</div>
+                    <div class="stat-value">{prediction_probability:.1%}</div>
+                    <div class="stat-help">Model score for the submitted profile.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with result_col_2:
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="stat-label">Risk band</div>
+                    <div class="stat-value">{risk_label}</div>
+                    <div class="stat-help">A simplified interpretation of the probability score.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with result_col_3:
+            recommendation = "Prioritize retention outreach" if prediction_probability >= 0.5 else "Customer appears stable"
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="stat-label">Action</div>
+                    <div class="stat-value">{recommendation}</div>
+                    <div class="stat-help">Use this as a starting point for customer success review.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.progress(min(prediction_probability, 1.0))
+
         st.markdown(
-            f"""
-            <div class="card">
-                <div class="stat-label">Churn probability</div>
-                <div class="stat-value">{prediction_probability:.1%}</div>
-                <div class="stat-help">Model score for the submitted profile.</div>
-            </div>
-            """,
+            f"<span class='result-pill {risk_level}'>{risk_label}</span>",
             unsafe_allow_html=True,
         )
 
-    with result_col_2:
-        st.markdown(
-            f"""
-            <div class="card">
-                <div class="stat-label">Risk band</div>
-                <div class="stat-value">{risk_label}</div>
-                <div class="stat-help">A simplified interpretation of the probability score.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        if prediction_probability >= 0.5:
+            st.error("The customer is likely to churn.")
+        else:
+            st.success("The customer is not likely to churn.")
 
-    with result_col_3:
-        recommendation = "Prioritize retention outreach" if prediction_probability >= 0.5 else "Customer appears stable"
-        st.markdown(
-            f"""
-            <div class="card">
-                <div class="stat-label">Action</div>
-                <div class="stat-value">{recommendation}</div>
-                <div class="stat-help">Use this as a starting point for customer success review.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.progress(min(prediction_probability, 1.0))
-
-    st.markdown(
-        f"<span class='result-pill {risk_level}'>{risk_label}</span>",
-        unsafe_allow_html=True,
-    )
-
-    if prediction_probability >= 0.5:
-        st.error("The customer is likely to churn.")
     else:
-        st.success("The customer is not likely to churn.")
+        input_frame = build_input_frame(
+            credit_score=credit_score,
+            geography=geography,
+            gender=gender,
+            age=age,
+            tenure=tenure,
+            balance=balance,
+            num_of_products=num_of_products,
+            has_cr_card=has_cr_card,
+            is_active_member=is_active_member,
+            exited=exited,
+            label_encoder_gender=label_encoder_gender,
+            onehot_encoder_geo=onehot_encoder_geo,
+            task_type="Regression",
+        )
+
+        scaled_input = scaler.transform(input_frame)
+        predicted_salary = float(model.predict(scaled_input, verbose=0)[0][0])
+
+        st.markdown("## Prediction Result")
+        result_col_1, result_col_2 = st.columns(2)
+
+        with result_col_1:
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="stat-label">Predicted Estimated Salary</div>
+                    <div class="stat-value">${predicted_salary:,.2f}</div>
+                    <div class="stat-help">Model prediction for estimated salary.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with result_col_2:
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="stat-label">Customer Status</div>
+                    <div class="stat-value">{"Exited (Churned)" if exited else "Active / Retained"}</div>
+                    <div class="stat-help">The churn status of the customer.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.success(f"The model predicts the customer's estimated salary is **${predicted_salary:,.2f}**.")
 
     with st.expander("See the transformed input passed to the model"):
         st.dataframe(input_frame, use_container_width=True)
@@ -329,16 +424,28 @@ else:
     overview_col_1, overview_col_2 = st.columns(2)
 
     with overview_col_1:
-        st.markdown(
-            """
-            <div class="card">
-                <div class="stat-label">What this app does</div>
-                <div class="stat-value">Interactive churn scoring</div>
-                <div class="stat-help">Pick a customer profile, submit it once, and review the churn probability with a clear interpretation.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        if task_type == "Classification":
+            st.markdown(
+                """
+                <div class="card">
+                    <div class="stat-label">What this app does</div>
+                    <div class="stat-value">Interactive churn scoring</div>
+                    <div class="stat-help">Pick a customer profile, submit it once, and review the churn probability with a clear interpretation.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <div class="card">
+                    <div class="stat-label">What this app does</div>
+                    <div class="stat-value">Salary estimation</div>
+                    <div class="stat-help">Pick a customer profile, submit it once, and review the predicted estimated salary based on demographics and tenure.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     with overview_col_2:
         st.markdown(
