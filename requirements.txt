@@ -1,0 +1,8 @@
+tensorflow
+keras
+tensorboard
+numpy
+pandas
+datetime
+pickle
+scikit-learn
